@@ -53,7 +53,9 @@ Parallelism **not yet** implemented
                         ├ lamas
                         ╎
  ```
-- **requirements**: have Chrome installed on your system. Will be used as guest, no log-in needed.
+- **requirements**:
+    - have Chrome installed on your system. Will be used as guest, no log-in needed.
+    - have selenium installed. If not just run `pip install selenium`
 - run with `python rename_snippet.py`.
 - the snippet will create a `downloads` folder in which all the queries will be downloaded.  
 - the downloaded images are small, adapt for machine learning.  
