@@ -13,30 +13,32 @@ from selenium.webdriver.support.ui import WebDriverWait
 from concurrent.futures import ThreadPoolExecutor
 
 
+# Custom exception
+class SpecificTimeoutException(Exception):
+    pass
 
-def get_images_from_google(driver, max_images):
+
+def urls_scraper(driver, max_images):
     def scroll_down():
         driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
 
     def scroll_up():
         driver.execute_script("window.scrollTo(0, -document.body.scrollHeight);")
 
-    def get_image_urls_with_js(driver):
-        script = "return document.querySelectorAll('.image_container img').length;"
-        num_images = driver.execute_script(script)
-
     image_urls = []
+    # waits until the thumbnails are loaded
+    try:
+        WebDriverWait(driver, 10).until(EC.presence_of_element_located((By.ID, 'islrg')))
+    except Exception:
+        raise SpecificTimeoutException("Loading Thumbnails")
     # starts the loading process of all the thumbnails.
     # the 15 is the amount of loaded pics for each scrolldown. To be tested.
-    WebDriverWait(driver, 60)
-
     for i in range(math.ceil(max_images / 15) + 1):
         scroll_down()
-        WebDriverWait(driver, 60)
+        time.sleep(0.5)
     for i in range(math.ceil(max_images / 15) + 1):
         scroll_up()
-        WebDriverWait(driver, 60)
-
+        time.sleep(0.5)
 
     # makes sure tot_thumbs is initialized correctly
     retrieval_trials = 0
@@ -50,15 +52,14 @@ def get_images_from_google(driver, max_images):
               "\nSometimes there are bugs if there is another application running not minimized, check for that.")
         driver.quit()
         quit()
-    print(get_image_urls_with_js(driver))
 
     # loops through every element inside the tot_thumbs scan
     image_counter = 0
     for element in tot_thumbs:
-        if image_counter <= max_images:
+        if image_counter < max_images:
             try:
-                element.click()
-                time.sleep(0.25)
+                WebDriverWait(element.click(), 10)
+                #time.sleep(0.25)
 
                 images = driver.find_elements(By.CSS_SELECTOR, '.r48jcc, .pT0Scc, .iPVvYb')
                 for img in images:
@@ -67,7 +68,7 @@ def get_images_from_google(driver, max_images):
                         image_counter += 1
                     if img.get_attribute('src') in image_urls:
                         break
-            except selenium.common.exceptions.ElementClickInterceptedException as e:
+            except selenium.common.exceptions.ElementClickInterceptedException:
                 pass
         else:
             WebDriverWait(driver.minimize_window(), 10)
@@ -110,6 +111,7 @@ def download_image(url, file_path):
         print(f'FAILED - {url}: {e}')
         return False
 
+
 def download_images(urls_list, query):
     """
     :param urls_list: list of urls of the images to download
@@ -117,16 +119,16 @@ def download_images(urls_list, query):
     :return: :type: void
     """
     dwn_path = os.path.join(os.getcwd(), "downloads", query)
+    if os.path.exists(dwn_path):
+        dwn_path = dwn_path if input("folder already existing, overwrite? [Y/N] ") == 'Y' else dwn_path+"_new"
     os.makedirs(dwn_path, exist_ok=True)  # Create directory if needed
 
     with ThreadPoolExecutor() as executor:  # Use threading for concurrency
-        results = executor.map(
+        executor.map(
             download_image, urls_list,
             [os.path.join(dwn_path, str(i)) for i in range(len(urls_list))]
         )
-
-    #successful_downloads = sum(results)
-    print(f"Downloaded images successfully.")
+    print(f"Images downloaded successfully.")
 
 
 def open_browser(query):
@@ -138,8 +140,8 @@ def open_browser(query):
     options = Options()
     options.add_argument("--start-maximized")
     driver = webdriver.Chrome(options=options)
-
     driver.get(search_url)
+    WebDriverWait(driver, 30)
     try:
         if driver.current_url[0:16] == "https://consent.":
             WebDriverWait(driver.find_element(By.XPATH, "//button[@jsname = 'tWT92d']"), 50)
@@ -147,7 +149,7 @@ def open_browser(query):
         else:
             WebDriverWait(driver.find_element(By.ID, 'W0wltc'), 50)
             driver.find_element(By.ID, 'W0wltc').click()
-    except selenium.common.exceptions.NoSuchElementException as e:
+    except selenium.common.exceptions.NoSuchElementException:
         print("URL not valid:\n" + driver.current_url + "\nor Element not found")
     time.sleep(1)
     return driver
@@ -157,8 +159,20 @@ if __name__ == '__main__':
     query = input("Enter search query: ")
     n_images = int(input("Enter amount of images: "))
     driver = open_browser(query)
+    # Checks that the page is correctly loaded. Solves most of the bugs even with low connection.
+    reloads = 0
+    try:
+        urls_list = urls_scraper(driver, n_images)
+    except SpecificTimeoutException as e:
+        if reloads <= 3:
+            reloads += 1
+            driver.quit()
+            driver = open_browser(query)
+            urls_list = urls_scraper(driver, n_images)
+        else:
+            print("Error loading the page properly. If the error persists, raise an issue on the project page")
+            quit()
 
-    urls_list = get_images_from_google(driver, n_images)
     print(len(urls_list))
     driver.quit()
     download_images(urls_list, query)
